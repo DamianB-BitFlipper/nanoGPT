@@ -5,7 +5,10 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "loguru>=0.7.3",
+    "pydantic>=2.11.4",
     "torch>=2.7.0",
+    "transformers>=4.51.3",
 ]
 
 [project.optional-dependencies]
