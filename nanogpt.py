@@ -195,3 +195,12 @@ class GPT(nn.Module):
                     sd[k].copy_(sd_hf[k])
 
         return model
+
+
+def main() -> None:
+    GPT.from_pretrained("gpt2")
+    logger.info("Did not crash! Yay!")
+
+
+if __name__ == "__main__":
+    main()
