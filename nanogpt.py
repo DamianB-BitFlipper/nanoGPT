@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import math
-from typing import Self
+from typing import ClassVar, Self
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F  # noqa: N812
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, model_validator
-from transformers import GPT2LMHeadModel
+from transformers.models.gpt2 import GPT2LMHeadModel
 
 
 class GPTConfig(BaseModel):
@@ -32,6 +32,8 @@ class GPTConfig(BaseModel):
 
 
 class CausalSelfAttention(nn.Module):
+    bias: ClassVar[torch.Tensor]
+
     def __init__(self, config: GPTConfig):
         super().__init__()
         # Key, query, value projections for all heads, but in a batch

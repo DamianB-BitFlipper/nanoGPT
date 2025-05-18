@@ -3,7 +3,7 @@ name = "nanogpt"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "loguru>=0.7.3",
     "pydantic>=2.11.4",
@@ -19,7 +19,7 @@ dev = [
 ]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py312"
 line-length = 96
 
 [tool.ruff.lint]
@@ -32,9 +32,11 @@ indent-style = "space"
 line-ending = "auto"
 
 [tool.pyright]
+venvPath = "."
+venv = ".venv"
 include = ["nanogpt"]
-exclude = ["**/node_modules", "**/__pycache__"]
+exclude = ["**/__pycache__"]
 reportMissingImports = true
 reportMissingTypeStubs = false
-pythonVersion = "3.10"
+pythonVersion = "3.12"
 typeCheckingMode = "basic"
