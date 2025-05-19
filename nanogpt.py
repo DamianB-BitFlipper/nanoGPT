@@ -222,13 +222,25 @@ class GPT(nn.Module):
         return model
 
 
+def get_compute_device() -> str:
+    device = "cpu"
+    if torch.cuda.is_available():
+        device = "cuda"
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        device = "mps"
+    logger.info(f"Using device: {device}")
+    return device
+
+
 def main() -> None:
     num_return_sequences = 5
     max_length = 30
     top_k = 50
+    compute_device = get_compute_device()
 
     enc = tiktoken.get_encoding("gpt2")
     model = GPT.from_pretrained("gpt2")
+    model.to(compute_device)
     logger.info("Model loaded")
 
     # Configures the model for inference
@@ -239,12 +251,16 @@ def main() -> None:
         torch.tensor(enc.encode("Hello, I'm a language model,"), dtype=torch.long)
         .unsqueeze(0)
         .repeat(num_return_sequences, 1)
-    )
+    ).to(compute_device)
 
-    # Generate! Right now x is (B, T) where B = 5, T = 8
     # Set the seed to 42
     torch.manual_seed(42)
-    torch.mps.manual_seed(42)
+    if compute_device == "cuda":
+        torch.cuda.manual_seed(42)
+    elif compute_device == "mps":
+        torch.mps.manual_seed(42)
+
+    # Generate! Right now x is (B, T) where B = 5, T = 8
     while x.size(1) < max_length:
         # Forward the model to get the logits
         with torch.no_grad():
