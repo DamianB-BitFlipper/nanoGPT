@@ -1,19 +1,17 @@
 from __future__ import annotations
 
 import math
-from typing import ClassVar, Self, TextIO
+from typing import ClassVar, Self
 
-import tiktoken
 import torch
 import torch.nn as nn
 import torch.nn.functional as F  # noqa: N812
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, model_validator
-from tiktoken import Encoding
 from transformers.models.gpt2 import GPT2LMHeadModel
 
 
-class GPTConfig(BaseModel):
+class GPT2Config(BaseModel):
     model_config = ConfigDict(frozen=True)  # Makes the model immutable like a dataclass
 
     block_size: int = 1024  # Max sequence length
@@ -36,7 +34,7 @@ class GPTConfig(BaseModel):
 class CausalSelfAttention(nn.Module):
     bias: ClassVar[torch.Tensor]
 
-    def __init__(self, config: GPTConfig):
+    def __init__(self, config: GPT2Config):
         super().__init__()
         # Key, query, value projections for all heads, but in a batch
         self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd)
@@ -92,7 +90,7 @@ class CausalSelfAttention(nn.Module):
 
 
 class MLP(nn.Module):
-    def __init__(self, config: GPTConfig):
+    def __init__(self, config: GPT2Config):
         super().__init__()
         self.c_fc = nn.Linear(config.n_embd, 4 * config.n_embd)
         self.gelu = nn.GELU(approximate="tanh")
@@ -106,7 +104,7 @@ class MLP(nn.Module):
 
 
 class Block(nn.Module):
-    def __init__(self, config: GPTConfig):
+    def __init__(self, config: GPT2Config):
         super().__init__()
         self.ln_1 = nn.LayerNorm(config.n_embd)
         self.attn = CausalSelfAttention(config)
@@ -119,8 +117,8 @@ class Block(nn.Module):
         return x
 
 
-class GPT(nn.Module):
-    def __init__(self, config: GPTConfig):
+class GPT2(nn.Module):
+    def __init__(self, config: GPT2Config):
         super().__init__()
         self.config = config
 
@@ -159,7 +157,7 @@ class GPT(nn.Module):
         return logits
 
     @classmethod
-    def from_pretrained(cls, model_type: str) -> GPT:
+    def from_pretrained(cls, model_type: str) -> GPT2:
         """Loads pretrained GPT-2 model weights from huggingface"""
         assert model_type in {"gpt2", "gpt2-medium", "gpt2-large", "gpt2-xl"}
         logger.info(f"loading weights from pretrained gpt: {model_type}")
@@ -175,8 +173,8 @@ class GPT(nn.Module):
         config_args["block_size"] = 1024  # Always 1024 for GPT model checkpoints
 
         # Create a from-scratch initialized minGPT model
-        config = GPTConfig(**config_args)
-        model = GPT(config)
+        config = GPT2Config(**config_args)
+        model = GPT2(config)
         sd = model.state_dict()
         sd_keys = sd.keys()
         sd_keys = [
@@ -221,93 +219,3 @@ class GPT(nn.Module):
                     sd[k].copy_(sd_hf[k])
 
         return model
-
-
-def get_compute_device() -> str:
-    device = "cpu"
-    if torch.cuda.is_available():
-        device = "cuda"
-    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-        device = "mps"
-    logger.info(f"Using device: {device}")
-    return device
-
-
-def get_databatch(
-    encoder: Encoding,
-    infile: TextIO,
-    *,
-    n_batches: int,
-    tokens_per_sample: int,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    text = infile.read()
-
-    # As an optimization, we only need roughly `4 * n_batches * tokens_per_sample` characters
-    text = text[: (4 * n_batches * tokens_per_sample)]
-    tokens = encoder.encode(text)
-
-    # Fetch all of the tokens used in the batch data plus 1 for
-    # the expected completion of the last token
-    buf = torch.tensor(tokens[: (n_batches * tokens_per_sample + 1)])
-
-    x = buf[:-1].view(n_batches, tokens_per_sample)  # Inputs
-    y = buf[1:].view(n_batches, tokens_per_sample)  # Expected outputs
-    return x, y
-
-
-def main() -> None:
-    num_return_sequences = 5
-    max_length = 30
-    top_k = 50
-    compute_device = get_compute_device()
-
-    enc = tiktoken.get_encoding("gpt2")
-    model = GPT.from_pretrained("gpt2")
-    model.to(compute_device)
-    logger.info("Model loaded")
-
-    # Configures the model for inference
-    model.eval()
-
-    # Repeat the tokenized input string `num_return_sequences` times
-    x = (
-        torch.tensor(enc.encode("Hello, I'm a language model,"), dtype=torch.long)
-        .unsqueeze(0)
-        .repeat(num_return_sequences, 1)
-    ).to(compute_device)
-
-    # Set the seed to 42
-    torch.manual_seed(42)
-    if compute_device == "cuda":
-        torch.cuda.manual_seed(42)
-    elif compute_device == "mps":
-        torch.mps.manual_seed(42)
-
-    # Generate! Right now x is (B, T) where B = 5, T = 8
-    while x.size(1) < max_length:
-        # Forward the model to get the logits
-        with torch.no_grad():
-            logits = model(x)  # (B, T, vocab_size)
-            # Take the logits at the final position
-            logits = logits[:, -1, :]  # (B, vocab_size)
-            # Get the probabilities
-            probs = F.softmax(logits, dim=-1)
-            # Do top-k sampling of `top_k` (huggingface pipeline default)
-            # topk_probs here becomes (5, top_k), topk_indicies is (5, top_k)
-            topk_probs, topk_indicies = torch.topk(probs, top_k, dim=-1)
-            # Select a token from the top-k probabilities
-            ix = torch.multinomial(topk_probs, 1)  # (B, 1)
-            # Gather the corresponding indices
-            xcol = torch.gather(topk_indicies, -1, ix)  # (B, 1)
-            # Append to the sequence
-            x = torch.cat((x, xcol), dim=1)
-
-    # Print the generated text
-    for i in range(num_return_sequences):
-        tokens = x[i, :max_length].tolist()
-        decoded = enc.decode(tokens)
-        logger.info(f"> {decoded}")
-
-
-if __name__ == "__main__":
-    main()

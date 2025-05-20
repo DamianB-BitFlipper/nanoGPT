@@ -1,0 +1,65 @@
+import tiktoken
+import torch
+import torch.nn.functional as F  # noqa: N812
+from loguru import logger
+
+from nanogpt.model import GPT2
+from nanogpt.utils import get_compute_device
+
+
+def main() -> None:
+    num_return_sequences = 5
+    max_length = 30
+    top_k = 50
+    compute_device = get_compute_device()
+
+    enc = tiktoken.get_encoding("gpt2")
+    gpt2 = GPT2.from_pretrained("gpt2")
+    gpt2.to(compute_device)
+    logger.info("Model loaded")
+
+    # Configures the model for inference
+    gpt2.eval()
+
+    # Repeat the tokenized input string `num_return_sequences` times
+    x = (
+        torch.tensor(enc.encode("Hello, I'm a language model,"), dtype=torch.long)
+        .unsqueeze(0)
+        .repeat(num_return_sequences, 1)
+    ).to(compute_device)
+
+    # Set the seed to 42
+    torch.manual_seed(42)
+    if compute_device == "cuda":
+        torch.cuda.manual_seed(42)
+    elif compute_device == "mps":
+        torch.mps.manual_seed(42)
+
+    # Generate! Right now x is (B, T) where B = 5, T = 8
+    while x.size(1) < max_length:
+        # Forward the model to get the logits
+        with torch.no_grad():
+            logits = gpt2(x)  # (B, T, vocab_size)
+            # Take the logits at the final position
+            logits = logits[:, -1, :]  # (B, vocab_size)
+            # Get the probabilities
+            probs = F.softmax(logits, dim=-1)
+            # Do top-k sampling of `top_k` (huggingface pipeline default)
+            # topk_probs here becomes (5, top_k), topk_indicies is (5, top_k)
+            topk_probs, topk_indicies = torch.topk(probs, top_k, dim=-1)
+            # Select a token from the top-k probabilities
+            ix = torch.multinomial(topk_probs, 1)  # (B, 1)
+            # Gather the corresponding indices
+            xcol = torch.gather(topk_indicies, -1, ix)  # (B, 1)
+            # Append to the sequence
+            x = torch.cat((x, xcol), dim=1)
+
+    # Print the generated text
+    for i in range(num_return_sequences):
+        tokens = x[i, :max_length].tolist()
+        decoded = enc.decode(tokens)
+        logger.info(f"> {decoded}")
+
+
+if __name__ == "__main__":
+    main()
