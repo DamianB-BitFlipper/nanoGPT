@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import ClassVar, Self
+from typing import ClassVar, Self, TextIO
 
 import tiktoken
 import torch
@@ -9,6 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F  # noqa: N812
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, model_validator
+from tiktoken import Encoding
 from transformers.models.gpt2 import GPT2LMHeadModel
 
 
@@ -230,6 +231,28 @@ def get_compute_device() -> str:
         device = "mps"
     logger.info(f"Using device: {device}")
     return device
+
+
+def get_databatch(
+    encoder: Encoding,
+    infile: TextIO,
+    *,
+    n_batches: int,
+    tokens_per_sample: int,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    text = infile.read()
+
+    # As an optimization, we only need roughly `4 * n_batches * tokens_per_sample` characters
+    text = text[: (4 * n_batches * tokens_per_sample)]
+    tokens = encoder.encode(text)
+
+    # Fetch all of the tokens used in the batch data plus 1 for
+    # the expected completion of the last token
+    buf = torch.tensor(tokens[: (n_batches * tokens_per_sample + 1)])
+
+    x = buf[:-1].view(n_batches, tokens_per_sample)  # Inputs
+    y = buf[1:].view(n_batches, tokens_per_sample)  # Expected outputs
+    return x, y
 
 
 def main() -> None:
