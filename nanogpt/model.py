@@ -132,7 +132,11 @@ class GPT2(nn.Module):
         )
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
-    def forward(self, idx: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        idx: torch.Tensor,
+        targets: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
         # The `idx` is of shape (B, T)
         B, T = idx.size()  # noqa: N806
         assert T <= self.config.block_size, (
@@ -154,7 +158,10 @@ class GPT2(nn.Module):
         # Forward the final `LayerNorm` and the classifier
         x = self.transformer.ln_f(x)  # type: ignore
         logits = self.lm_head(x)  # (B, T, vocab_size)
-        return logits
+        loss = None
+        if targets is not None:
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
+        return logits, loss
 
     @classmethod
     def from_pretrained(cls, model_type: str) -> GPT2:

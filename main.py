@@ -4,18 +4,28 @@ import torch.nn.functional as F  # noqa: N812
 from loguru import logger
 
 from nanogpt.model import GPT2
-from nanogpt.utils import get_compute_device
+from nanogpt.utils import get_batched_data, get_compute_device
+
+COMPUTE_DEVICE = get_compute_device()
 
 
-def main() -> None:
+def fix_random_seeds() -> None:
+    # Set the seed to 42
+    torch.manual_seed(42)
+    if COMPUTE_DEVICE == "cuda":
+        torch.cuda.manual_seed(42)
+    elif COMPUTE_DEVICE == "mps":
+        torch.mps.manual_seed(42)
+
+
+def main_hello_world() -> None:
     num_return_sequences = 5
     max_length = 30
     top_k = 50
-    compute_device = get_compute_device()
 
     enc = tiktoken.get_encoding("gpt2")
     gpt2 = GPT2.from_pretrained("gpt2")
-    gpt2.to(compute_device)
+    gpt2.to(COMPUTE_DEVICE)
     logger.info("Model loaded")
 
     # Configures the model for inference
@@ -26,20 +36,13 @@ def main() -> None:
         torch.tensor(enc.encode("Hello, I'm a language model,"), dtype=torch.long)
         .unsqueeze(0)
         .repeat(num_return_sequences, 1)
-    ).to(compute_device)
-
-    # Set the seed to 42
-    torch.manual_seed(42)
-    if compute_device == "cuda":
-        torch.cuda.manual_seed(42)
-    elif compute_device == "mps":
-        torch.mps.manual_seed(42)
+    ).to(COMPUTE_DEVICE)
 
     # Generate! Right now x is (B, T) where B = 5, T = 8
     while x.size(1) < max_length:
         # Forward the model to get the logits
         with torch.no_grad():
-            logits = gpt2(x)  # (B, T, vocab_size)
+            logits, _ = gpt2(x)  # (B, T, vocab_size)
             # Take the logits at the final position
             logits = logits[:, -1, :]  # (B, vocab_size)
             # Get the probabilities
@@ -61,5 +64,27 @@ def main() -> None:
         logger.info(f"> {decoded}")
 
 
+def main_train() -> None:
+    enc = tiktoken.get_encoding("gpt2")
+    gpt2 = GPT2.from_pretrained("gpt2")
+    gpt2.to(COMPUTE_DEVICE)
+    logger.info("Model loaded")
+
+    # Configures the model for inference
+    gpt2.eval()
+
+    with open("./data/my_tiny_shakespeare.txt") as infile:
+        x, y = get_batched_data(enc, infile, n_batches=4, tokens_per_sample=32)
+        x = x.to(COMPUTE_DEVICE)
+        y = y.to(COMPUTE_DEVICE)
+
+    # Forward the model to get the logits
+    with torch.no_grad():
+        logits, loss = gpt2(x, y)  # (B, T, vocab_size)
+        print(logits.shape, loss)
+
+
 if __name__ == "__main__":
-    main()
+    fix_random_seeds()
+    # main_hello_world()
+    main_train()

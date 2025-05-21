@@ -15,7 +15,7 @@ def get_compute_device() -> str:
     return device
 
 
-def get_databatch(
+def get_batched_data(
     encoder: Encoding,
     infile: TextIO,
     *,
