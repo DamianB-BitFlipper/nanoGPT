@@ -3,7 +3,7 @@ import torch
 import torch.nn.functional as F  # noqa: N812
 from loguru import logger
 
-from nanogpt.model import GPT2
+from nanogpt.model import GPT2, GPT2Config
 from nanogpt.utils import get_batched_data, get_compute_device
 
 COMPUTE_DEVICE = get_compute_device()
@@ -66,7 +66,7 @@ def main_hello_world() -> None:
 
 def main_train() -> None:
     enc = tiktoken.get_encoding("gpt2")
-    gpt2 = GPT2.from_pretrained("gpt2")
+    gpt2 = GPT2(GPT2Config())
     gpt2.to(COMPUTE_DEVICE)
     logger.info("Model loaded")
 
@@ -78,11 +78,14 @@ def main_train() -> None:
         x = x.to(COMPUTE_DEVICE)
         y = y.to(COMPUTE_DEVICE)
 
-    # Forward the model to get the logits
-    with torch.no_grad():
+    # Optimize!
+    optimizer = torch.optim.AdamW(gpt2.parameters(), lr=3e-4)
+    for i in range(50):
+        optimizer.zero_grad()
         logits, loss = gpt2(x, y)  # (B, T, vocab_size)
-        print(logits.shape, loss)
-
+        loss.backward()
+        optimizer.step()
+        logger.info(f"step: {i}, loss: {loss.item()}")
 
 if __name__ == "__main__":
     fix_random_seeds()
