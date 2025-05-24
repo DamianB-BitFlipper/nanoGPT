@@ -87,6 +87,7 @@ def main_train() -> None:
         optimizer.step()
         logger.info(f"step: {i}, loss: {loss.item()}")
 
+
 if __name__ == "__main__":
     fix_random_seeds()
     # main_hello_world()
