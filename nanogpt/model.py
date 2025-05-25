@@ -42,7 +42,7 @@ class CausalSelfAttention(nn.Module):
         self.c_proj = nn.Linear(config.n_embd, config.n_embd)
 
         # Scale the initialization because of the residual connection
-        self.c_proj.NANOGPT_SCALE_INIT = True
+        self.c_proj.NANOGPT_SCALE_INIT = True  # pyright: ignore[reportArgumentType]
 
         # Regularization
         self.n_head = config.n_head
@@ -100,7 +100,7 @@ class MLP(nn.Module):
         self.gelu = nn.GELU(approximate="tanh")
         self.c_proj = nn.Linear(4 * config.n_embd, config.n_embd)
         # Scale the initialization because of the residual connection
-        self.c_proj.NANOGPT_SCALE_INIT = True
+        self.c_proj.NANOGPT_SCALE_INIT = True  # pyright: ignore[reportArgumentType]
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.c_fc(x)
@@ -141,19 +141,20 @@ class GPT2(nn.Module):
         # Weight sharing scheme since embedding and output matrices should be identical.
         # This is since both the input and outspaces are similar, so it makes sense to
         # codify them similarly. This produces better results
-        self.transformer.wte.weight = self.lm_head.weight
+        self.transformer.wte.weight = self.lm_head.weight  # pyright: ignore[reportAttributeAccessIssue]
 
         # Initialize the tensors. The `self.apply` recursively iterates all modules and
         # sub-modules and applies the target function
         self.apply(self._init_weights)
 
-    def _init_weights(self, module: nn.Module):
+    def _init_weights(self, module: nn.Module) -> None:
         """Initialize tensors according to the original GPT-2 implementation."""
         if isinstance(module, nn.Linear):
             std = 0.02
-            # Scale the initialization randomness for the layers marked with `NANOGPT_SCALE_INIT`
-            # since they form a residual chain to prevent gradient explosion/collapse
-            if getattr(module, "NANOGPT_SCALE_INIT"):
+            # Scale the initialization randomness for the layers marked
+            # with `NANOGPT_SCALE_INIT` since they form a residual chain
+            # to prevent gradient explosion/collapse
+            if module.NANOGPT_SCALE_INIT:
                 std *= (2 * self.config.n_layer) ** -0.5
             torch.nn.init.normal_(module.weight, mean=0.0, std=std)
             if module.bias is not None:
