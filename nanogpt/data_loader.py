@@ -6,7 +6,7 @@ from tiktoken import Encoding
 
 
 class DataLoader:
-    def __init__(self, B: int, T: int, *, data_file: Path, encoder: Encoding):
+    def __init__(self, B: int, T: int, *, data_file: Path, encoder: Encoding):  # noqa: N803
         self.B = B
         self.T = T
 

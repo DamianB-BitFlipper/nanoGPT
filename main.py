@@ -1,10 +1,13 @@
+from pathlib import Path
+
 import tiktoken
 import torch
 import torch.nn.functional as F  # noqa: N812
 from loguru import logger
 
+from nanogpt.data_loader import DataLoader
 from nanogpt.model import GPT2, GPT2Config
-from nanogpt.utils import get_batched_data, get_compute_device
+from nanogpt.utils import get_compute_device
 
 COMPUTE_DEVICE = get_compute_device()
 
@@ -66,22 +69,28 @@ def main_hello_world() -> None:
 
 def main_train() -> None:
     enc = tiktoken.get_encoding("gpt2")
+
     gpt2 = GPT2(GPT2Config())
     gpt2.to(COMPUTE_DEVICE)
     logger.info("Model loaded")
 
-    # Configures the model for inference
-    gpt2.eval()
-
-    with open("./data/my_tiny_shakespeare.txt") as infile:
-        x, y = get_batched_data(enc, infile, n_batches=4, tokens_per_sample=32)
-        x = x.to(COMPUTE_DEVICE)
-        y = y.to(COMPUTE_DEVICE)
+    train_loader = DataLoader(
+        B=4,
+        T=32,
+        data_file=Path("./data/my_tiny_shakespeare.txt"),
+        encoder=enc,
+    )
 
     # Optimize!
     optimizer = torch.optim.AdamW(gpt2.parameters(), lr=3e-4)
     for i in range(50):
         optimizer.zero_grad()
+
+        # Get a batch of training data
+        x, y = train_loader.next_batch()
+        x = x.to(COMPUTE_DEVICE)
+        y = y.to(COMPUTE_DEVICE)
+
         logits, loss = gpt2(x, y)  # (B, T, vocab_size)
         loss.backward()
         optimizer.step()
