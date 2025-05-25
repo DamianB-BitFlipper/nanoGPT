@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 
 import tiktoken
@@ -68,6 +69,9 @@ def main_hello_world() -> None:
 
 
 def main_train() -> None:
+    # Use tensor float 32 for matrix multiplication
+    torch.set_float32_matmul_precision("high")
+
     enc = tiktoken.get_encoding("gpt2")
 
     gpt2 = GPT2(GPT2Config())
@@ -75,8 +79,8 @@ def main_train() -> None:
     logger.info("Model loaded")
 
     train_loader = DataLoader(
-        B=4,
-        T=32,
+        B=8,
+        T=1024,
         data_file=Path("./data/my_tiny_shakespeare.txt"),
         encoder=enc,
     )
@@ -84,6 +88,8 @@ def main_train() -> None:
     # Optimize!
     optimizer = torch.optim.AdamW(gpt2.parameters(), lr=3e-4)
     for i in range(50):
+        t0 = time.time()
+
         optimizer.zero_grad()
 
         # Get a batch of training data
@@ -94,7 +100,18 @@ def main_train() -> None:
         logits, loss = gpt2(x, y)  # (B, T, vocab_size)
         loss.backward()
         optimizer.step()
-        logger.info(f"step: {i}, loss: {loss.item()}")
+
+        # Wait for the GPU kernels to finish their scheduled jobs
+        torch.cuda.synchronize()
+        t1 = time.time()
+
+        tokens_per_sec = (train_loader.B * train_loader.T) / (t1 - t0)
+        logger.info(
+            f"step: {i}, "
+            f"loss: {loss.item()}, "
+            f"dt: {(t1 - t0) * 1000:.2f}ms, "
+            f"tok/sec: {tokens_per_sec:.2f}"
+        )
 
 
 if __name__ == "__main__":

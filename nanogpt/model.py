@@ -154,7 +154,7 @@ class GPT2(nn.Module):
             # Scale the initialization randomness for the layers marked
             # with `NANOGPT_SCALE_INIT` since they form a residual chain
             # to prevent gradient explosion/collapse
-            if module.NANOGPT_SCALE_INIT:
+            if getattr(module, "NANOGPT_SCALE_INIT", None):
                 std *= (2 * self.config.n_layer) ** -0.5
             torch.nn.init.normal_(module.weight, mean=0.0, std=std)
             if module.bias is not None:
