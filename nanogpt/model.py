@@ -137,6 +137,19 @@ class GPT2(nn.Module):
         # codify them similarly. This produces better results
         self.transformer.wte.weight = self.lm_head.weight
 
+        # Initialize the tensors. The `self.apply` recursively iterates all modules and
+        # sub-modules and applies the target function
+        self.apply(self._init_weights)
+
+    def _init_weights(self, module: nn.Module):
+        """Initialize tensors according to the original GPT-2 implementation."""
+        if isinstance(module, nn.Linear):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+
     def forward(
         self,
         idx: torch.Tensor,
