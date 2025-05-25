@@ -132,6 +132,11 @@ class GPT2(nn.Module):
         )
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
+        # Weight sharing scheme since embedding and output matrices should be identical.
+        # This is since both the input and outspaces are similar, so it makes sense to
+        # codify them similarly. This produces better results
+        self.transformer.wte.weight = self.lm_head.weight
+
     def forward(
         self,
         idx: torch.Tensor,
