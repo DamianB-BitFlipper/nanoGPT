@@ -78,6 +78,9 @@ def main_train() -> None:
     gpt2.to(COMPUTE_DEVICE)
     logger.info("Model loaded")
 
+    gpt2 = torch.compile(gpt2)
+    logger.info("Model compiled")
+
     train_loader = DataLoader(
         B=8,
         T=1024,
@@ -97,7 +100,10 @@ def main_train() -> None:
         x = x.to(COMPUTE_DEVICE)
         y = y.to(COMPUTE_DEVICE)
 
-        logits, loss = gpt2(x, y)  # (B, T, vocab_size)
+        # Use reduced precision for the forward pass
+        with torch.autocast(device_type=COMPUTE_DEVICE, dtype=torch.bfloat16):
+            logits, loss = gpt2(x, y)  # (B, T, vocab_size)
+
         loss.backward()
         optimizer.step()
 
