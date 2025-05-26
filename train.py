@@ -51,8 +51,16 @@ def main_train() -> None:
         encoder=enc,
     )
 
-    # Optimize!
-    optimizer = torch.optim.AdamW(gpt2.parameters(), lr=3e-4, betas=(0.9, 0.95), eps=1e-8)
+    # Build the optimizer with GPT-3 hyper-parameters
+    optimizer = gpt2.configure_optimizers(
+        weight_decay=0.1,
+        learning_rate=6e-4,
+        betas=(0.9, 0.95),
+        eps=1e-8,
+        device=COMPUTE_DEVICE,
+    )
+
+    # Train!
     for step in range(50):
         t0 = time.time()
 

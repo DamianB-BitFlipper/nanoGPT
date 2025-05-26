@@ -197,6 +197,50 @@ class GPT2(nn.Module):
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
         return logits, loss
 
+    def configure_optimizers(
+        self,
+        *,
+        weight_decay: float,
+        learning_rate: float,
+        betas: tuple[float, float],
+        eps: float,
+        device: str,
+    ) -> torch.optim.Optimizer:
+        # Start with all candidate parameters that require a gradient
+        param_dict = {pname: p for pname, p in self.named_parameters() if p.requires_grad}
+
+        # Create optimizer groups. Any parameters that are 2D (matrices) will be
+        # weight decayed. Otherwise no. I.e. all weight tensors in matmuls + embeddings
+        # decay, all biases and layernorms do not
+        decay_params = [p for p in param_dict.values() if p.dim() >= 2]
+        nodecay_params = [p for p in param_dict.values() if p.dim() < 2]
+        optim_groups = [
+            {"params": decay_params, "weight_decay": weight_decay},
+            {"params": nodecay_params, "weight_decay": 0.0},
+        ]
+
+        num_decay_params = sum(p.numel() for p in decay_params)
+        num_nodecay_params = sum(p.numel() for p in nodecay_params)
+        logger.info(
+            f"Num decayed parameter tensors: {len(decay_params)}, "
+            f"with {num_decay_params:,} parameters"
+        )
+        logger.info(
+            f"Num non-decayed parameter tensors: {len(nodecay_params)}, "
+            f"with {num_nodecay_params:,} parameters"
+        )
+
+        # Create an AdamW optimizer and use the fused version if on CUDA
+        optimizer = torch.optim.AdamW(
+            optim_groups,
+            lr=learning_rate,
+            betas=betas,
+            eps=eps,
+            fused="cuda" in device,
+        )
+
+        return optimizer
+
     @classmethod
     def from_pretrained(cls, model_type: str) -> GPT2:
         """Loads pretrained GPT-2 model weights from huggingface"""
