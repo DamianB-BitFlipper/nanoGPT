@@ -74,22 +74,21 @@ def main_train() -> None:
 
     enc = tiktoken.get_encoding("gpt2")
 
-    gpt2 = GPT2(GPT2Config())
+    # GPT-2 vocab_size of 50257, padded up to nearest multiple of 64 for efficiency
+    gpt2 = GPT2(GPT2Config(vocab_size=50304))
     gpt2.to(COMPUTE_DEVICE)
+    gpt2 = torch.compile(gpt2)
     logger.info("Model loaded")
 
-    gpt2 = torch.compile(gpt2)
-    logger.info("Model compiled")
-
     train_loader = DataLoader(
-        B=8,
+        B=24,
         T=1024,
         data_file=Path("./data/my_tiny_shakespeare.txt"),
         encoder=enc,
     )
 
     # Optimize!
-    optimizer = torch.optim.AdamW(gpt2.parameters(), lr=3e-4)
+    optimizer = torch.optim.AdamW(gpt2.parameters(), lr=3e-4, betas=(0.9, 0.95), eps=1e-8)
     for i in range(50):
         t0 = time.time()
 
@@ -105,6 +104,11 @@ def main_train() -> None:
             logits, loss = gpt2(x, y)  # (B, T, vocab_size)
 
         loss.backward()
+
+        # Clip the global gradient norm to 1 to prevent huge updates
+        norm = torch.nn.utils.clip_grad_norm_(gpt2.parameters(), 1.0)
+
+        # Apply the gradient
         optimizer.step()
 
         # Wait for the GPU kernels to finish their scheduled jobs
@@ -113,9 +117,10 @@ def main_train() -> None:
 
         tokens_per_sec = (train_loader.B * train_loader.T) / (t1 - t0)
         logger.info(
-            f"step: {i}, "
-            f"loss: {loss.item()}, "
-            f"dt: {(t1 - t0) * 1000:.2f}ms, "
+            f"step: {i} | "
+            f"loss: {loss.item()} | "
+            f"norm: {norm:.4f} | "
+            f"dt: {(t1 - t0) * 1000:.2f}ms | "
             f"tok/sec: {tokens_per_sec:.2f}"
         )
 
