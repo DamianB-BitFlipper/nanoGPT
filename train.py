@@ -76,7 +76,7 @@ def main_train() -> None:
 
         optimizer.zero_grad()
 
-        loss_accum = torch.tensor(0.0)
+        loss_accum = torch.tensor(0.0, device=COMPUTE_DEVICE)
         for _micro_step in range(grad_accum_steps):
             # Get a batch of training data
             x, y = train_loader.next_microbatch()
