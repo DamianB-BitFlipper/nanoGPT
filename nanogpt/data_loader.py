@@ -16,12 +16,12 @@ class DataLoader:
         tokens = encoder.encode(text)
         self.tokens = torch.tensor(tokens)
         logger.info(f"Loaded {len(self.tokens)} tokens")
-        logger.info(f"1 epoch = {len(self.tokens) // (self.B * self.T)} batches")
+        logger.info(f"1 epoch = {len(self.tokens) // (self.B * self.T)} micro-batches")
 
         # State
         self.current_position = 0
 
-    def next_batch(self) -> tuple[torch.Tensor, torch.Tensor]:
+    def next_microbatch(self) -> tuple[torch.Tensor, torch.Tensor]:
         buf = self.tokens[self.current_position : self.current_position + (self.B * self.T + 1)]
         x = (buf[:-1]).view(self.B, self.T)  # inputs
         y = (buf[1:]).view(self.B, self.T)  # targets

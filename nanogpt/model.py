@@ -58,9 +58,7 @@ class CausalSelfAttention(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        B, T, C = (  # noqa: N806
-            x.size()
-        )  # Batch size, sequence length, embedding dimensionality (n_embd)
+        B, T, C = x.size()  # Batch size, sequence length, embedding dimensionality (n_embd)
         # Calculate query, key, values for all heads in batch and move head forward
         # to be the batch dim `nh` is "number of heads", hs is "head size" and C
         # (number of channels) = nh * hs. e.g. in GPT-2 (124M), n_head=12, hs=64,
@@ -172,7 +170,7 @@ class GPT2(nn.Module):
         targets: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
         # The `idx` is of shape (B, T)
-        B, T = idx.size()  # noqa: N806
+        B, T = idx.size()
         assert T <= self.config.block_size, (
             f"Cannot forward sequences of length {T}, block size is {self.config.block_size}"
         )

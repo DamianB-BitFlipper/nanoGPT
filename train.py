@@ -44,9 +44,19 @@ def main_train() -> None:
     gpt2 = torch.compile(gpt2)
     logger.info("Model loaded")
 
+    total_batch_size = 524288  # 2**19, ~0.5M tokens
+    B = 16  # Microbatch size
+    T = 1024  # Context length
+    assert total_batch_size % (B * T) == 0, (
+        "Make sure the `total_batch_size` is divisible by B * T"
+    )
+    grad_accum_steps = total_batch_size // (B * T)
+    logger.info(f"Total desired batch size: {total_batch_size}")
+    logger.info(f"=> Calculated gradient accumulation steps: {grad_accum_steps}")
+
     train_loader = DataLoader(
-        B=24,
-        T=1024,
+        B=B,
+        T=T,
         data_file=Path("./data/my_tiny_shakespeare.txt"),
         encoder=enc,
     )
@@ -66,16 +76,25 @@ def main_train() -> None:
 
         optimizer.zero_grad()
 
-        # Get a batch of training data
-        x, y = train_loader.next_batch()
-        x = x.to(COMPUTE_DEVICE)
-        y = y.to(COMPUTE_DEVICE)
+        loss_accum = torch.tensor(0.0)
+        for _micro_step in range(grad_accum_steps):
+            # Get a batch of training data
+            x, y = train_loader.next_microbatch()
+            x = x.to(COMPUTE_DEVICE)
+            y = y.to(COMPUTE_DEVICE)
 
-        # Use reduced precision for the forward pass
-        with torch.autocast(device_type=COMPUTE_DEVICE, dtype=torch.bfloat16):
-            logits, loss = gpt2(x, y)  # (B, T, vocab_size)
+            # Use reduced precision for the forward pass
+            with torch.autocast(device_type=COMPUTE_DEVICE, dtype=torch.bfloat16):
+                logits, loss = gpt2(x, y)  # (B, T, vocab_size)
 
-        loss.backward()
+            # Normalize the `loss` since we want it in the end to be the average
+            # across the entire batch. Without the normalization, it would be the sum
+            # of the averages of the micro-batches, which is not equivalent
+            loss /= grad_accum_steps
+            loss_accum += loss.detach()
+
+            # Deposit the gradients during the backward pass
+            loss.backward()
 
         # Clip the global gradient norm to 1 to prevent huge updates
         norm = torch.nn.utils.clip_grad_norm_(gpt2.parameters(), 1.0)
@@ -100,10 +119,10 @@ def main_train() -> None:
         torch.cuda.synchronize()
         t1 = time.time()
 
-        tokens_per_sec = (train_loader.B * train_loader.T) / (t1 - t0)
+        tokens_per_sec = (train_loader.B * train_loader.T * grad_accum_steps) / (t1 - t0)
         logger.info(
             f"step: {step} | "
-            f"loss: {loss.item()} | "
+            f"loss: {loss_accum.item():.6f} | "
             f"lr: {lr:.5f} | "
             f"norm: {norm:.4f} | "
             f"dt: {(t1 - t0) * 1000:.2f}ms | "
