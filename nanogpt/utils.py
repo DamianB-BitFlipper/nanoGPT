@@ -48,7 +48,7 @@ def init_compute_device(*, use_mps: bool = False) -> tuple[str, DDPCoord]:
         device = f"cuda:{ddp_coord.local_rank}"
         torch.cuda.set_device(device)
 
-    logger.info(f"Using device: {device}")
+    logger.info(f"Using device: {device} with coordinates {ddp_coord}")
     return device, ddp_coord
 
 
