@@ -1,12 +1,14 @@
 import tiktoken
 import torch
 import torch.nn.functional as F  # noqa: N812
-from loguru import logger
 
+from nanogpt.logging import get_master_logger
 from nanogpt.model import GPT2
-from nanogpt.utils import fix_random_seeds, init_compute_device
+from nanogpt.utils import fix_random_seeds, get_compute_device
 
-COMPUTE_DEVICE, _ = init_compute_device()
+logger = get_master_logger()
+
+COMPUTE_DEVICE, _ = get_compute_device()
 
 
 def main_hello_world() -> None:

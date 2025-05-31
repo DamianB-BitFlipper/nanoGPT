@@ -4,13 +4,24 @@ from pathlib import Path
 
 import tiktoken
 import torch
-from loguru import logger
 
 from nanogpt.data_loader import DataLoader
+from nanogpt.logging import get_all_logger, get_master_logger
 from nanogpt.model import GPT2, GPT2Config
-from nanogpt.utils import fix_random_seeds, init_compute_device
+from nanogpt.utils import fix_random_seeds, get_compute_device, init_ddp
 
-COMPUTE_DEVICE, DDP_COORD = init_compute_device()
+logger = get_master_logger()
+all_logger = get_all_logger()
+
+COMPUTE_DEVICE, DDP_COORD = get_compute_device()
+all_logger.info(f"Using device: {COMPUTE_DEVICE} with coordinates {DDP_COORD}")
+
+# Initialize distribtued data parallelism for this `COMPUTE_DEVICE`
+init_ddp(COMPUTE_DEVICE)
+
+# Disable logging if not the master process
+if not DDP_COORD.master_process:
+    logger.disable("__main__")
 
 
 def get_gpt3_lr(
@@ -47,10 +58,10 @@ def main_train() -> None:
     total_batch_size = 524288  # 2**19, ~0.5M tokens
     B = 16  # Microbatch size
     T = 1024  # Context length
-    assert total_batch_size % (B * T) == 0, (
-        "Make sure the `total_batch_size` is divisible by B * T"
+    assert total_batch_size % (B * T * DDP_COORD.world_size) == 0, (
+        "Make sure the `total_batch_size` is divisible by B * T * DDP_COORD.world_size"
     )
-    grad_accum_steps = total_batch_size // (B * T)
+    grad_accum_steps = total_batch_size // (B * T * DDP_COORD.world_size)
     logger.info(f"Total desired batch size: {total_batch_size}")
     logger.info(f"=> Calculated gradient accumulation steps: {grad_accum_steps}")
 

@@ -5,9 +5,12 @@ from typing import ClassVar, Self
 import torch
 import torch.nn as nn
 import torch.nn.functional as F  # noqa: N812
-from loguru import logger
 from pydantic import BaseModel, ConfigDict, model_validator
 from transformers.models.gpt2 import GPT2LMHeadModel
+
+from nanogpt.logging import get_master_logger
+
+logger = get_master_logger()
 
 
 class GPT2Config(BaseModel):

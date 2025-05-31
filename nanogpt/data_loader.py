@@ -1,8 +1,11 @@
 from pathlib import Path
 
 import torch
-from loguru import logger
 from tiktoken import Encoding
+
+from nanogpt.logging import get_master_logger
+
+logger = get_master_logger()
 
 
 class DataLoader:
