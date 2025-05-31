@@ -8,9 +8,9 @@ from loguru import logger
 
 from nanogpt.data_loader import DataLoader
 from nanogpt.model import GPT2, GPT2Config
-from nanogpt.utils import fix_random_seeds, get_compute_device
+from nanogpt.utils import fix_random_seeds, init_compute_device
 
-COMPUTE_DEVICE = get_compute_device()
+COMPUTE_DEVICE, DDP_COORD = init_compute_device()
 
 
 def get_gpt3_lr(
