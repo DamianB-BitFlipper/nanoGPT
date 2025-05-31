@@ -27,11 +27,7 @@ def init_compute_device(*, use_mps: bool = False) -> tuple[str, DDPCoord]:
         device = "mps"
 
     # Calculate the distributed data parallel coordinate
-    if not (
-        device == "cuda"
-        and torch.distributed.is_available()
-        and torch.distributed.is_initialized()
-    ):
+    if not (device == "cuda" and "RANK" in os.environ and "WORLD_SIZE" in os.environ):
         ddp_coord = DDPCoord(
             rank=0,
             local_rank=0,
