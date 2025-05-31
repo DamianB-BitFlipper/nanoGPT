@@ -3,14 +3,22 @@
 import math
 import time
 from pathlib import Path
+from typing import cast
 
 import tiktoken
 import torch
+from torch.nn.parallel import DistributedDataParallel
 
 from nanogpt.data_loader import DataLoader
 from nanogpt.logging import get_all_logger, get_master_logger
 from nanogpt.model import GPT2, GPT2Config
-from nanogpt.utils import fix_random_seeds, get_compute_device, init_ddp, register_cleanup_ddp
+from nanogpt.utils import (
+    fix_random_seeds,
+    get_compute_device,
+    init_ddp,
+    is_ddp_enabled,
+    register_cleanup_ddp,
+)
 
 logger = get_master_logger()
 all_logger = get_all_logger()
@@ -58,6 +66,14 @@ def main_train() -> None:
     gpt2 = GPT2(GPT2Config(vocab_size=50304))
     gpt2.to(COMPUTE_DEVICE)
     gpt2 = torch.compile(gpt2)
+
+    # Wrap `gpt2` with the `DistributedDataParallel` class to utilize the distributed training
+    if is_ddp_enabled():
+        gpt2 = DistributedDataParallel(gpt2, device_ids=[DDP_COORD.local_rank])
+
+    # Force a type cast to `GPT2` to keep pyright satisfied
+    gpt2 = cast(GPT2, gpt2)
+
     logger.info("Model loaded")
 
     total_batch_size = 524288  # 2**19, ~0.5M tokens
