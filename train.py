@@ -73,6 +73,7 @@ def main_train() -> None:
     train_loader = DataLoader(
         B=B,
         T=T,
+        ddp_coord=DDP_COORD,
         data_file=Path("./data/my_tiny_shakespeare.txt"),
         encoder=enc,
     )
