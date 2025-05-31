@@ -1,8 +1,9 @@
+import atexit
 import os
 
 import torch
 from pydantic import BaseModel, computed_field
-from torch.distributed import init_process_group
+from torch.distributed import destroy_process_group, init_process_group
 
 
 class DDPCoord(BaseModel):
@@ -16,6 +17,11 @@ class DDPCoord(BaseModel):
         return self.rank == 0
 
 
+def is_ddp_enabled() -> bool:
+    # Simplest way to determine if the script was run via `torchrun`
+    return "RANK" in os.environ and "WORLD_SIZE" in os.environ
+
+
 def get_compute_device(*, use_mps: bool = False) -> tuple[str, DDPCoord]:
     device = "cpu"
     if torch.cuda.is_available():
@@ -26,7 +32,7 @@ def get_compute_device(*, use_mps: bool = False) -> tuple[str, DDPCoord]:
         device = "mps"
 
     # Calculate the distributed data parallel coordinate
-    if not (device == "cuda" and "RANK" in os.environ and "WORLD_SIZE" in os.environ):
+    if not (device == "cuda" and is_ddp_enabled()):
         ddp_coord = DDPCoord(
             rank=0,
             local_rank=0,
@@ -44,9 +50,19 @@ def get_compute_device(*, use_mps: bool = False) -> tuple[str, DDPCoord]:
 
 
 def init_ddp(device: str) -> None:
-    # Initialize DDP and the specific CUDA device
-    init_process_group(backend="nccl")
-    torch.cuda.set_device(device)
+    if is_ddp_enabled():
+        # Initialize DDP and the specific CUDA device
+        init_process_group(backend="nccl")
+        torch.cuda.set_device(device)
+
+
+def _cleanup_ddp() -> None:
+    if is_ddp_enabled():
+        destroy_process_group()
+
+
+def register_cleanup_ddp() -> None:
+    atexit.register(_cleanup_ddp)
 
 
 def fix_random_seeds(compute_device: str) -> None:

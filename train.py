@@ -1,3 +1,5 @@
+"""Run with DDP using `torchrun --standalone --nproc-per-node=<N_GPUS> train.py`"""
+
 import math
 import time
 from pathlib import Path
@@ -8,7 +10,7 @@ import torch
 from nanogpt.data_loader import DataLoader
 from nanogpt.logging import get_all_logger, get_master_logger
 from nanogpt.model import GPT2, GPT2Config
-from nanogpt.utils import fix_random_seeds, get_compute_device, init_ddp
+from nanogpt.utils import fix_random_seeds, get_compute_device, init_ddp, register_cleanup_ddp
 
 logger = get_master_logger()
 all_logger = get_all_logger()
@@ -18,6 +20,9 @@ all_logger.info(f"Using device: {COMPUTE_DEVICE} with coordinates {DDP_COORD}")
 
 # Initialize distribtued data parallelism for this `COMPUTE_DEVICE`
 init_ddp(COMPUTE_DEVICE)
+
+# Register DDP cleanup whenever the process exits
+register_cleanup_ddp()
 
 # Disable logging if not the master process
 if not DDP_COORD.master_process:
