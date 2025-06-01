@@ -10,6 +10,7 @@ class DDPCoord(BaseModel):
     rank: int
     local_rank: int
     world_size: int
+    ddp_enabled: bool
 
     @computed_field
     @property
@@ -37,12 +38,14 @@ def get_compute_device(*, use_mps: bool = False) -> tuple[str, DDPCoord]:
             rank=0,
             local_rank=0,
             world_size=1,
+            ddp_enabled=False,
         )
     else:
         ddp_coord = DDPCoord(
             rank=int(os.environ["RANK"]),
             local_rank=int(os.environ["LOCAL_RANK"]),
             world_size=int(os.environ["WORLD_SIZE"]),
+            ddp_enabled=True,
         )
         device = f"cuda:{ddp_coord.local_rank}"
 

@@ -2,8 +2,8 @@
 
 import math
 import time
+from contextlib import nullcontext
 from pathlib import Path
-from typing import cast
 
 import tiktoken
 import torch
@@ -16,7 +16,6 @@ from nanogpt.utils import (
     fix_random_seeds,
     get_compute_device,
     init_ddp,
-    is_ddp_enabled,
     register_cleanup_ddp,
 )
 
@@ -57,6 +56,10 @@ def get_gpt3_lr(
 
 
 def main_train() -> None:
+    # Cannot train without a DDP enabled system
+    if not DDP_COORD.ddp_enabled:
+        raise RuntimeError("Cannot train GPT2 without DDP enabled.")
+
     # Use tensor float 32 for matrix multiplication
     torch.set_float32_matmul_precision("high")
 
@@ -68,11 +71,7 @@ def main_train() -> None:
     gpt2 = torch.compile(gpt2)
 
     # Wrap `gpt2` with the `DistributedDataParallel` class to utilize the distributed training
-    if is_ddp_enabled():
-        gpt2 = DistributedDataParallel(gpt2, device_ids=[DDP_COORD.local_rank])
-
-    # Force a type cast to `GPT2` to keep pyright satisfied
-    gpt2 = cast(GPT2, gpt2)
+    gpt2 = DistributedDataParallel(gpt2, device_ids=[DDP_COORD.local_rank])
 
     logger.info("Model loaded")
 
@@ -95,7 +94,7 @@ def main_train() -> None:
     )
 
     # Build the optimizer with GPT-3 hyper-parameters
-    optimizer = gpt2.configure_optimizers(
+    optimizer = gpt2.module.configure_optimizers(
         weight_decay=0.1,
         learning_rate=6e-4,
         betas=(0.9, 0.95),
@@ -110,24 +109,37 @@ def main_train() -> None:
         optimizer.zero_grad()
 
         loss_accum = torch.tensor(0.0, device=COMPUTE_DEVICE)
-        for _micro_step in range(grad_accum_steps):
+        for micro_step in range(grad_accum_steps):
             # Get a batch of training data
             x, y = train_loader.next_microbatch()
             x = x.to(COMPUTE_DEVICE)
             y = y.to(COMPUTE_DEVICE)
 
-            # Use reduced precision for the forward pass
-            with torch.autocast(device_type=COMPUTE_DEVICE, dtype=torch.bfloat16):
-                logits, loss = gpt2(x, y)  # (B, T, vocab_size)
+            # Only sync gradients when executing the last `micro_step` of this batch
+            ddp_sync_ctx = (
+                gpt2.no_sync() if micro_step != (grad_accum_steps - 1) else nullcontext()
+            )
 
-            # Normalize the `loss` since we want it in the end to be the average
-            # across the entire batch. Without the normalization, it would be the sum
-            # of the averages of the micro-batches, which is not equivalent
-            loss /= grad_accum_steps
-            loss_accum += loss.detach()
+            with ddp_sync_ctx:
+                # Use reduced precision for the forward pass
+                with torch.autocast(device_type=COMPUTE_DEVICE, dtype=torch.bfloat16):
+                    logits, loss = gpt2(x, y)  # (B, T, vocab_size)
 
-            # Deposit the gradients during the backward pass
-            loss.backward()
+                # Normalize the `loss` since we want it in the end to be the average
+                # across the entire batch. Without the normalization, it would be the sum
+                # of the averages of the micro-batches, which is not equivalent
+                loss /= grad_accum_steps
+
+                # Save a running loss accumulation for effective logging
+                loss_accum += loss.detach()
+
+                # Deposit the gradients during the backward pass. Also synchronizes gradients
+                # across all ranks if not using `gpt2.no_sync` in the `ddp_sync_ctx`
+                loss.backward()
+
+        # Synchronize and average the `loss_accum` from all ranks so that the master
+        # log prints the loss of the entire system
+        torch.distributed.all_reduce(loss_accum, op=torch.distributed.ReduceOp.AVG)
 
         # Clip the global gradient norm to 1 to prevent huge updates
         norm = torch.nn.utils.clip_grad_norm_(gpt2.parameters(), 1.0)
@@ -152,7 +164,9 @@ def main_train() -> None:
         torch.cuda.synchronize()
         t1 = time.time()
 
-        tokens_per_sec = (train_loader.B * train_loader.T * grad_accum_steps) / (t1 - t0)
+        tokens_per_sec = (
+            train_loader.B * train_loader.T * grad_accum_steps * DDP_COORD.world_size
+        ) / (t1 - t0)
         logger.info(
             f"step: {step} | "
             f"loss: {loss_accum.item():.6f} | "
