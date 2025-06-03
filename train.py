@@ -75,8 +75,8 @@ def main_train() -> None:
 
     logger.info("Model loaded")
 
-    total_batch_size = 524288  # 2**19, ~0.5M tokens
-    B = 16  # Microbatch size
+    total_batch_size = 589824  # 1024 * 24 * 24, ~0.5M tokens
+    B = 24  # Microbatch size
     T = 1024  # Context length
     assert total_batch_size % (B * T * DDP_COORD.world_size) == 0, (
         "Make sure the `total_batch_size` is divisible by B * T * DDP_COORD.world_size"
