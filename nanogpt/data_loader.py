@@ -9,7 +9,7 @@ from nanogpt.utils import DDPCoord
 logger = get_master_logger()
 
 
-class DataLoader:
+class DataLoaderText:
     def __init__(
         self,
         B: int,  # noqa: N803

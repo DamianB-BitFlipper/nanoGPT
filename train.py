@@ -9,7 +9,7 @@ import tiktoken
 import torch
 from torch.nn.parallel import DistributedDataParallel
 
-from nanogpt.data_loader import DataLoader
+from nanogpt.data_loader import DataLoaderText
 from nanogpt.logging import get_all_logger, get_master_logger
 from nanogpt.model import GPT2, GPT2Config
 from nanogpt.utils import (
@@ -85,7 +85,7 @@ def main_train() -> None:
     logger.info(f"Total desired batch size: {total_batch_size}")
     logger.info(f"=> Calculated gradient accumulation steps: {grad_accum_steps}")
 
-    train_loader = DataLoader(
+    train_loader = DataLoaderText(
         B=B,
         T=T,
         ddp_coord=DDP_COORD,

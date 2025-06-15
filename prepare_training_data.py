@@ -32,7 +32,7 @@ from nanogpt.logging import get_all_logger
 logger = get_all_logger()
 
 # Divide by 2 to avoid using hyperthreaded cores, just the physical cores
-N_PROCS = max(1, (os.cpu_count() or 1) // 2)
+N_PROCS = max(1, (os.cpu_count() or 0) // 2)
 
 # 100M tokens per shard
 SHARD_SIZE = 100_000_000
@@ -105,8 +105,11 @@ def main() -> None:
         ),
     )
 
+    # Split the dataset in to 99% train and 1% test
+    train_test_split = dataset.train_test_split(test_size=0.01, seed=42)
+
     logger.info("Saving dataset to disk...")
-    dataset.save_to_disk(
+    train_test_split.save_to_disk(
         f"{hf_home}/hub/datasets--m-a-p--FineFineWeb-tokenized/",
         num_proc=N_PROCS,
     )
