@@ -13,24 +13,33 @@ To process and prepare this training data, simply run:
 $ python prepare_training_data.py
 
 Will tokenize the dataset and save shards as a new dataset in the HF_HOME directory.
-"""
+"""  # noqa: E501
 
-import os
 import multiprocessing as mp
+import os
+from collections.abc import Iterator
+from typing import cast
+
+import datasets
 import numpy as np
-from numpy.typing import NDArray
 import tiktoken
-from datasets import load_dataset
+from datasets import Dataset, IterableDataset, load_dataset
+from numpy.typing import NDArray
 from tqdm import tqdm
 
+from nanogpt.logging import get_all_logger
+
+logger = get_all_logger()
+
 # Divide by 2 to avoid using hyperthreaded cores, just the physical cores
-N_PROCS = max(1, os.cpu_count() // 2)
+N_PROCS = max(1, (os.cpu_count() or 1) // 2)
 
 # 100M tokens per shard
 SHARD_SIZE = 100_000_000
 
 encoder = tiktoken.get_encoding("gpt2")
-EOT = encoder._special_tokens['<|endoftext|>'] # End of text token
+EOT = encoder._special_tokens["<|endoftext|>"]  # End of text token
+
 
 def tokenize(row: dict[str, str]) -> NDArray[np.uint16]:
     """Token a single row of data and return it as a numpy array of uint16 tokens."""
@@ -46,54 +55,62 @@ def tokenize(row: dict[str, str]) -> NDArray[np.uint16]:
     tokens_np_uint16 = tokens_np.astype(np.uint16)
     return tokens_np_uint16
 
-def main():
+
+def tokenized_rows_generator(
+    *, dataset: IterableDataset
+) -> Iterator[dict[str, NDArray[np.uint16]]]:
+    with mp.Pool(N_PROCS) as pool:
+        progress_bar = tqdm(desc="Tokenizing", unit="tokens", unit_scale=True)
+
+        try:
+            # Tokenize the dataset in parallel with each process processing 256 rows at a time
+            for tokens in pool.imap(tokenize, dataset, chunksize=256):
+                progress_bar.update(len(tokens))
+
+                yield {"tokens": tokens}
+        finally:
+            progress_bar.close()
+
+
+def main() -> None:
     # Check if HF_HOME environment variable is defined
-    hf_home = os.getenv('HF_HOME')
+    hf_home = os.getenv("HF_HOME")
     if hf_home is None:
-        raise EnvironmentError("HF_HOME environment variable is not defined")
+        raise OSError("HF_HOME environment variable is not defined")
 
     # Lazily load the dataset with the rows randomly shuffled
-    dataset = load_dataset(
-        f"{hf_home}/hub/datasets--m-a-p--FineFineWeb/",
-        split="train",
-        streaming=True,
-    ).shuffle(seed=42)
+    dataset = (
+        cast(
+            IterableDataset,
+            load_dataset(
+                f"{hf_home}/hub/datasets--m-a-p--FineFineWeb/",
+                split="train",
+                streaming=True,
+            ),
+        )
+        .shuffle(seed=42)
+        .take(
+            int(16e6)
+        ),  # 650 tokens per row on average, 16M rows is a bit more than 10B tokens
+    )
 
-    with mp.Pool(N_PROCS) as pool:
-        # Preallocate buffer to hold current shard
-        all_tokens_np = np.empty((SHARD_SIZE,), dtype=np.uint16)
+    # Load the shards from a generator to avoid loading the entire dataset to RAM
+    dataset = cast(
+        Dataset,
+        Dataset.from_generator(
+            tokenized_rows_generator,
+            features=datasets.Features({"tokens": datasets.Sequence(datasets.Value("uint16"))}),
+            gen_kwargs={"dataset": dataset},
+            writer_batch_size=int(25e3),  # Write to disk every 25k rows
+        ),
+    )
 
-        shard_index = 0
-        token_count = 0
-        progress_bar = None
-        for tokens in pool.imap(tokenize, dataset, chunksize=128):
-            # Determine if this is a validation or train split
-            split = "val" if shard_index == 0 else "train"
-
-            # Initialize the progress bar if not already
-            if progress_bar is None:
-                progress_bar = tqdm(total=SHARD_SIZE, unit="tokens", desc=f"Shard {shard_index}")
-
-            # is there enough space in the current shard for the new tokens?
-            if token_count + len(tokens) < SHARD_SIZE:
-                # Simply append tokens to current shard
-                all_tokens_np[token_count : token_count + len(tokens)] = tokens
-                token_count += len(tokens)
-                # Update progress bar
-                progress_bar.update(len(tokens))
-            else:
-                filename = os.path.join(DATA_CACHE_DIR, f"edufineweb_{split}_{shard_index:06d}")
-                # split the document into whatever fits in this shard; the remainder goes to next one
-                remainder = SHARD_SIZE - token_count
-                progress_bar.update(remainder)
-                all_tokens_np[token_count:token_count+remainder] = tokens[:remainder]
-                write_datafile(filename, all_tokens_np)
-                shard_index += 1
-                progress_bar = None
-                # populate the next shard with the leftovers of the current doc
-                all_tokens_np[0:len(tokens)-remainder] = tokens[remainder:]
-                token_count = len(tokens)-remainder
-                break
+    logger.info("Saving dataset to disk...")
+    dataset.save_to_disk(
+        f"{hf_home}/hub/datasets--m-a-p--FineFineWeb-tokenized/",
+        num_proc=N_PROCS,
+    )
+    logger.info("Dataset saved successfully!")
 
 
 if __name__ == "__main__":

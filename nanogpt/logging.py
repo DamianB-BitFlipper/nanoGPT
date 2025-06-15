@@ -20,10 +20,15 @@ if DDP_COORD.master_process:
         filter=lambda record: record["extra"].get("logger_type") == "master",
     )
 
-# Create all-processes logger - always add handler
+# Create all-processes logger - conditionally format based on DDP status
+if DDP_COORD.ddp_enabled:
+    all_format = "[RANK-{extra[rank]}] {time:YYYY-MM-DD HH:mm:ss} | {level} | {message}"
+else:
+    all_format = "{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}"
+
 all_handler_id = logger.add(
     sys.stderr,
-    format="[RANK-{extra[rank]}] {time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
+    format=all_format,
     filter=lambda record: record["extra"].get("logger_type") == "all",
 )
 
